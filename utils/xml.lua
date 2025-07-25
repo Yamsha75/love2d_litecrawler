@@ -24,7 +24,7 @@ end
 
 ---@param node XmlNode
 ---@param childName string
----@return fun():XmlNode?
+---@return fun(): integer?, XmlNode?
 function module.iterNodeChildren(node, childName)
     local t = node.children or {}
     local i = 0
@@ -36,7 +36,7 @@ function module.iterNodeChildren(node, childName)
 
             local childNode = t[i]
             if childNode and childNode.name == childName then
-                return childNode
+                return i, childNode
             end
         end
     end
@@ -48,17 +48,15 @@ end
 function module.findNodeChildren(node, childName)
     local children = {}
 
-    local i = 1
-    for child in module.iterNodeChildren(node, childName) do
+    for i, child in module.iterNodeChildren(node, childName) do
         children[i] = child
-        i = i + 1
     end
 
     return children
 end
 
 ---@param xmlContent string
----@return XmlNode
+---@return XmlNode?
 function module.loadFromString(xmlContent)
     local rootNode
     local thisNode
@@ -105,6 +103,16 @@ function module.loadFromString(xmlContent)
     slaxml:parser(parserConfig):parse(xmlContent, { stripWhitespace = true })
 
     return rootNode
+end
+
+---@param filepath string
+---@return XmlNode?
+function module.loadFromFile(filepath)
+    if not love.filesystem.getInfo(filepath, "file") then return end
+
+    local fileContent = love.filesystem.read(filepath)
+
+    return module.loadFromString(fileContent)
 end
 
 return module

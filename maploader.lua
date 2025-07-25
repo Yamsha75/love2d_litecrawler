@@ -1,327 +1,400 @@
+local Constants = require("constants")
+local BitDecoder = require("utils.bitdecoder")
+local TableCopy = require("utils.tablecopy")
 local XML = require("utils.xml")
--- local TileIDs = require("tileids")
-
-local H_FLIP_MASK = 0x80000000
-local V_FLIP_MASK = 0x40000000
-local D_FLIP_MASK = 0x20000000
-local NOFLIP_MASK = 0x0FFFFFFF
 
 local QUARTER_TURN = math.rad(90)
 
----@class Tileset
----@field name string
----@field firstgid integer
----@field tileCount integer
----@field source string
+local module = {}
 
----@class Map
----@field width integer
----@field height integer
----@field tilesets table<string, Tileset>
----@field tiles table<TileLayer, Table2D<TileInfo>> -- info for tile rendering only; includes render order
----@field walkable Table2D<boolean> -- info for movement only
----@field interactible Table2D<Entity> -- info for checking interactions
----@field entities table<string, Entity> -- info for turn processing
-
----@alias Table2D<T> table<integer, table<integer, T>> -- 2D table for mapping coordinates to type T
-
----@enum TileLayer
-local TileLayer = { -- map file layers; also rendering order
-    GROUND = 1,     -- no special purpose
-    SCENERY = 2,    -- tiles which block movement; can still be interactible
-    DECOR = 3,      -- no special purpose
-    ENTITIES = 4,   -- all interactibles, including the Player, NPCs, doors, etc.
-    FOREGROUND = 5  -- no special purpose
-}
-
----@class TileInfo -- info for tile rendering only
----@field tileset Tileset
----@field id integer tileID within the tileset
----@field x integer positionX
----@field y integer positionY
----@field r number rotation
----@field sx integer scaleX
----@field sy integer scaleY
-
----@enum EntityType
-local EntityType = {
-    PLAYER = 1,
-    NPC = 2,
-    BREAKABLE = 3,
-    CONTAINER = 4,
-    TRAPDOOR = 5,
-    PORTAL = 6,
-    ITEM = 7,
-    SIGN = 8,
-}
-
----@class Entity : TileInfo -- info about interactible tiles
----@field type EntityType
----@field name string
----@field properties table
-
-local module = { TileLayer = TileLayer, EntityType = EntityType }
-
----@param source string
----@param firstgid integer
----@return Tileset
-local function loadTilesetInfo(source, firstgid)
-    local i = string.find(source, "assets")
-    assert(i, "source \"" .. source .. "\" value is invalid")
-
-    -- strip characters before "assets", as the filepath will be relative to the file main.lua
-    if i > 1 then source = string.sub(source, i) end
-
-    assert(love.filesystem.getInfo(source, "file"), "tileset info \"" .. source .. "\" not found")
-
-    local fileContent = love.filesystem.read(source)
-    local rootNode = XML.loadFromString(fileContent)
-
-    local name = rootNode.attributes.name
-    assert(name and string.len(name) > 0)
-
-    local tileCount = tonumber(rootNode.attributes.tilecount)
-    assert(tileCount)
-
-    local imageNode = XML.findNodeChild(rootNode, "image")
-    assert(imageNode)
-
-    local imageFilepath = "assets/gfx/" .. imageNode.attributes.source
-    assert(love.filesystem.getInfo(imageFilepath, "file"), "tileset image \"" .. source .. "\" not found")
-
-    ---@type Tileset
-    local tileset = {
-        name = name,
-        tileCount = tileCount,
-        firstgid = firstgid,
-        source = imageFilepath
-    }
-
-    return tileset
-end
-
----@param filename string
----@return Map? map
-function module.loadMapFromFile(filename)
-    local filepath = "maps/" .. filename .. ".tmx"
-
-    print("trying to load map \"" .. filepath .. "\"")
-
-    if not love.filesystem.getInfo(filepath, "file") then return end
-
-    local fileContent = love.filesystem.read(filepath)
-    local rootNode = XML.loadFromString(fileContent)
-    assert(rootNode)
-
-    local tileWidth = tonumber(rootNode.attributes.tilewidth)
-    local tileHeight = tonumber(rootNode.attributes.tileheight)
-
-    assert(tileWidth and tileHeight)
-    assert(tileWidth == tileHeight)
-
-    local width = tonumber(rootNode.attributes.width)
-    local height = tonumber(rootNode.attributes.height)
-    assert(width and height)
+---@param mapRootNode XmlNode
+---@return Map
+local function createEmptyMap(mapRootNode)
+    local width = tonumber(mapRootNode.attributes.width)
+    assert(width and width > 0 and math.floor(width) == width, "map width must be a positive integer")
+    local height = tonumber(mapRootNode.attributes.height)
+    assert(height and height > 0 and math.floor(height) == height, "map height must be a positive integer")
 
     ---@type Map
     local map = {
         width = width,
         height = height,
         tilesets = {},
-        tiles = {},
+        tileIDMapping = {},
+        layers = {},
         walkable = {},
-        interactible = {},
-        entities = {},
+        objects = {},
+        namedObjects = {},
     }
 
-    for _, layerID in pairs(TileLayer) do
-        local layer = {}
+    -- populate first dimension of the 2D table for each layer
+    local layerColumn
+    for _, layer in pairs(TileLayer) do
+        layerColumn = {}
 
         for y = 0, height do
-            layer[y] = {}
+            layerColumn[y] = {}
         end
 
-        map.tiles[layerID] = layer
+        map.layers[layer] = layerColumn
     end
 
+    -- populate first dimension of the 2D table for objects table,
+    -- and populate both dimensions of the 2D table for walkable tile checks
     for y = 0, height do
-        local walkable = {}
+        local rows = {}
 
         for x = 0, width do
-            walkable[x] = true
+            -- all tiles are considered walkable until the scenery layer tile is found
+            rows[x] = true
         end
 
-        map.walkable[y] = walkable
-        map.interactible[y] = {}
-    end
-
-    ---@type table<integer, Tileset>
-    local tilesetMapping = {}
-
-    print("loading map tilesets")
-    for tilesetNode in XML.iterNodeChildren(rootNode, "tileset") do
-        local firstgid = tonumber(tilesetNode.attributes.firstgid)
-        assert(firstgid, "firstgid attribute missing in tileset")
-
-        local source = tilesetNode.attributes.source
-        assert(source, "source attribute missing in tilesets")
-
-        local tileset = loadTilesetInfo(source, firstgid)
-        map.tilesets[tileset.name] = tileset
-
-        for id = tileset.firstgid, tileset.firstgid + tileset.tileCount do
-            tilesetMapping[id] = tileset
-        end
-    end
-
-    print("loading map layer data")
-    for layerNode in XML.iterNodeChildren(rootNode, "layer") do
-        local layerName = string.upper(layerNode.attributes.name or "")
-        assert(string.len(layerName) > 0, "Layer with empty name attribute found")
-
-        local layerID = TileLayer[layerName]
-        assert(layerID, "layer \"" .. layerName .. "\" is not one of the expected layers")
-
-        print("loading layer " .. layerName)
-
-        local index = 0
-        for value in string.gmatch(XML.findNodeChild(layerNode, "data").text, "%d+") do
-            local globalTileID = tonumber(value) or 0
-
-            if globalTileID ~= 0 then
-                local y = math.floor(index / width)
-                local x = index - y * width
-
-                local dFlip = bit.band(globalTileID, D_FLIP_MASK) ~= 0
-                local hFlip = bit.band(globalTileID, H_FLIP_MASK) ~= 0
-                local vFlip = bit.band(globalTileID, V_FLIP_MASK) ~= 0
-
-                globalTileID = bit.band(globalTileID, NOFLIP_MASK)
-                local tileset = tilesetMapping[globalTileID]
-                assert(tileset)
-                local tileID = globalTileID - tileset.firstgid + 1 -- relative to the tileset
-
-                local tile = {
-                    tileset = tileset,
-                    id = tileID
-                }
-
-                if not dFlip and not hFlip and not vFlip then
-                    -- no flips
-                elseif dFlip and not hFlip and not vFlip then
-                    -- d
-                    tile.r = QUARTER_TURN
-                    tile.sy = -1
-                elseif dFlip and hFlip and vFlip then
-                    -- d + h + v
-                    tile.r = QUARTER_TURN
-                    tile.sx = -1
-                elseif dFlip and hFlip then
-                    -- d + h
-                    tile.r = QUARTER_TURN
-                elseif dFlip and vFlip then
-                    -- d + v
-                    tile.r = -QUARTER_TURN
-                elseif hFlip and vFlip then
-                    -- h + v
-                    tile.r = -2 * QUARTER_TURN
-                elseif hFlip then
-                    -- h
-                    tile.sx = -1
-                else
-                    -- v
-                    tile.sy = -1
-                end
-
-                if layerID == TileLayer.SCENERY then
-                    map.walkable[y][x] = nil
-                end
-
-                if layerID == TileLayer.ENTITIES then
-                    -- player, npc, item or other interactible
-                    tile.x = x
-                    tile.y = y
-                    map.interactible[y][x] = tile
-                else
-                    -- simple layer
-                    map.tiles[layerID][y][x] = tile
-                end
-            end
-            index = index + 1
-        end
-    end
-
-    print("loading map entities")
-    local indexes = {}
-    for _, entityID in pairs(EntityType) do
-        indexes[entityID] = 1
-    end
-
-    local objectgroupNode = XML.findNodeChild(rootNode, "objectgroup")
-    assert(objectgroupNode, "objects layer missing")
-
-    for objectNode in XML.iterNodeChildren(objectgroupNode, "object") do
-        local objectType = string.upper(objectNode.attributes.type or "")
-        assert(string.len(objectType) > 0, "object with empty type attribute found")
-
-        local entityType = EntityType[objectType]
-        assert(entityType, "object type \"" .. objectType .. "\" is not one of the expected types")
-
-        local y = tonumber(objectNode.attributes.y)
-        local x = tonumber(objectNode.attributes.x)
-
-        assert(y and x and y >= 0 and x >= 0)
-
-        y = y / tileHeight
-        x = x / tileWidth
-
-        ---@type Entity
-        local entity = map.interactible[y][x]
-        assert(entity, "entity at coords x=" .. tostring(x) .. ", y=" .. tostring(y) .. " not found")
-
-        local entityName = objectNode.attributes.name
-
-        if entityName then
-            -- name provided, make sure it is not a duplicate
-            assert(map.entities[entityName] == nil, "duplicate entity with name \"" .. entityName .. "\" found")
-        else
-            -- no name provided, use entityType + autoIndex, for example NPC_23 or ITEM_12
-            local index
-            repeat
-                index = indexes[entityType]
-                entityName = objectType .. tostring(index)
-                index = index + 1
-            until map.entities[entityName] == nil
-
-            indexes[entityType] = index
-        end
-
-        entity.type = entityType
-        entity.name = entityName
-        entity.properties = {}
-
-        map.entities[entity.name] = entity
-
-        if entity.type == EntityType.PLAYER then
-            -- remove player entity from interactibles 2D table
-            map.interactible[y][x] = nil
-        end
-
-        local propertiesNode = XML.findNodeChild(objectNode, "properties")
-        -- load entity custom properties
-        if propertiesNode then
-            for propertyNode in XML.iterNodeChildren(propertiesNode, "property") do
-                local name = propertyNode.attributes.name
-                local value = propertyNode.attributes.value
-
-                assert(name and string.len(name) > 0 and value)
-
-                entity.properties[name] = value
-            end
-        end
+        map.walkable[y] = rows
+        map.objects[y] = {}
     end
 
     return map
+end
+
+---@param propertiesNode XmlNode
+---@return table<string, any>
+local function parseObjectProperties(propertiesNode)
+    local properties = {}
+
+    for _, propertyNode in XML.iterNodeChildren(propertiesNode, "property") do
+        local propertyType = propertyNode.attributes.type
+        local propertyName = propertyNode.attributes.name
+        ---@type any
+        local propertyValue = propertyNode.attributes.value
+
+        assert(propertyName and propertyValue, "object property name and/or value attributes are missing")
+
+        if propertyType then
+            if propertyType == "bool" then
+                propertyValue = (propertyValue == "true")
+            elseif propertyType == "float" then
+                propertyValue = tonumber(propertyValue) or 0.0
+            elseif propertyType == "int" then
+                propertyValue = math.floor(tonumber(propertyValue) or 0)
+            else
+                error("object property type \"" .. propertyType .. "\" is unsupported")
+            end
+        end
+        properties[propertyName] = propertyValue
+    end
+
+    return properties
+end
+
+---@param filepath string
+---@param firstGlobalID integer
+---@return Tileset
+local function loadTilesetFile(filepath, firstGlobalID)
+    print("loading tileset \"" .. filepath .. "\"")
+
+    -- strip characters before "assets", as the filepath will be relative to the file main.lua
+    local i = string.find(filepath, "assets")
+    assert(i, "tileset source \"" .. filepath .. "\" attribute is invalid")
+    if i > 1 then filepath = string.sub(filepath, i) end
+
+    local rootNode = XML.loadFromFile(filepath)
+    assert(rootNode, "tileset info \"" .. filepath .. "\" not found")
+
+    local tilesetName = rootNode.attributes.name
+    assert(tilesetName and string.len(tilesetName) > 0, "tileset \"" .. filepath .. "\" is missing name attribute")
+
+    local tileCount = tonumber(rootNode.attributes.tilecount)
+    assert(tileCount and tileCount > 0 and math.floor(tileCount) == tileCount,
+        "tileset \"" .. tilesetName .. "\" tileCount attribute is not a positive integer")
+
+    local imageNode = XML.findNodeChild(rootNode, "image")
+    assert(imageNode, "tileset \"" .. tilesetName .. "\" does not contain a reference to an image file")
+
+    local imageFilepath = "assets/tilesets/" .. imageNode.attributes.source
+    assert(love.filesystem.getInfo(imageFilepath, "file"),
+        "tileset \"" .. tilesetName .. "\" image file \"" .. filepath .. "\" not found")
+
+    ---@type Tileset
+    local tileset = {
+        name = tilesetName,
+        tileCount = tileCount,
+        firstgid = firstGlobalID,
+        source = imageFilepath,
+        objectTypes = {},
+        defaultObjectProperties = {}
+    }
+
+    for _, tileNode in XML.iterNodeChildren(rootNode, "tile") do
+        local tileID = tonumber(tileNode.attributes.id)
+        assert(tileID and tileID >= 0 and math.floor(tileID) == tileID,
+            "id attribute is missing or not a positive integer")
+
+        -- local globalTileID = firstGlobalID + tileID + 1
+        local globalTileID = tileID + 1
+
+        local objectTypeName = string.upper(tileNode.attributes.type or "")
+        if string.len(objectTypeName) > 0 then
+            local objectType = ObjectType[objectTypeName]
+            assert(objectType)
+
+            tileset.objectTypes[globalTileID] = objectType
+        end
+
+        local propertiesNode = XML.findNodeChild(tileNode, "properties")
+        if propertiesNode then
+            tileset.defaultObjectProperties[globalTileID] = parseObjectProperties(propertiesNode)
+        end
+    end
+
+    return tileset
+end
+
+---@param mapRootNode XmlNode
+---@param map Map
+local function parseTilesets(mapRootNode, map)
+    ---@type table<string, Tileset> -- maps tileset name to Tileset object
+    local tilesetMap = {}
+    ---@type table<integer, Tileset> -- maps globalTileID to Tileset object
+    local tileIDMapping = {}
+
+    local firstGlobalID, tilesetFilepath, tileset
+    for _, tilesetNode in XML.iterNodeChildren(mapRootNode, "tileset") do
+        firstGlobalID = tonumber(tilesetNode.attributes.firstgid)
+        assert(firstGlobalID, "firstgid attribute missing in tileset")
+
+        tilesetFilepath = tilesetNode.attributes.source
+        assert(tilesetFilepath, "source attribute missing in tilesets")
+
+        tileset = loadTilesetFile(tilesetFilepath, firstGlobalID)
+        tilesetMap[tileset.name] = tileset
+
+        for id = tileset.firstgid, tileset.firstgid + tileset.tileCount do
+            tileIDMapping[id] = tileset
+        end
+    end
+
+    map.tilesets = tilesetMap
+    map.tileIDMapping = tileIDMapping
+end
+
+---@param globalTileID integer -- includes flip flags
+---@param tileIDMap table<integer, Tileset>
+---@return TileInfo
+local function parseTileID(globalTileID, tileIDMap)
+    local dFlip, vFlip, hFlip
+
+    -- split into actual globalTileID and flip flags
+    globalTileID, dFlip, vFlip, hFlip = BitDecoder.decodeTileID(globalTileID)
+
+    -- find which tileset is tied to the globalTileID
+    local tileset = tileIDMap[globalTileID]
+    assert(tileset)
+
+    -- calculate tileID within the tileset
+    local tileID = globalTileID - tileset.firstgid + 1
+
+    -- base tile info
+    local tile = {
+        tileset = tileset,
+        id = tileID
+    }
+
+    -- rotation/flipping
+    if not dFlip and not hFlip and not vFlip then
+        -- no flips
+    elseif dFlip and not hFlip and not vFlip then
+        -- d
+        tile.r = QUARTER_TURN
+        tile.sy = -1
+    elseif dFlip and hFlip and vFlip then
+        -- d + h + v
+        tile.r = QUARTER_TURN
+        tile.sx = -1
+    elseif dFlip and hFlip then
+        -- d + h
+        tile.r = QUARTER_TURN
+    elseif dFlip and vFlip then
+        -- d + v
+        tile.r = -1 * QUARTER_TURN
+    elseif hFlip and vFlip then
+        -- h + v
+        tile.r = -2 * QUARTER_TURN
+    elseif hFlip then
+        -- h
+        tile.sx = -1
+    else
+        -- v
+        tile.sy = -1
+    end
+
+    return tile
+end
+
+---@param mapRootNode XmlNode
+---@param map Map
+local function parseLayers(mapRootNode, map)
+    for layerIndex, layerNode in XML.iterNodeChildren(mapRootNode, "layer") do
+        local layerName = string.upper(layerNode.attributes.name or "")
+        assert(string.len(layerName) > 0, "layer #" .. tostring(layerIndex) .. " has empty name attribute")
+
+        local layerID = TileLayer[layerName]
+        assert(layerID, "layer #" .. tostring(layerIndex) .. " \"" .. layerName .. "\" is not one of the expected layers")
+
+        print("loading layer \"" .. layerName .. "\"")
+
+        local layer = map.layers[layerID]
+
+        local tileIndex = 0
+        local x, y
+        local globalTileID
+        for value in string.gmatch(XML.findNodeChild(layerNode, "data").text, "%d+") do
+            globalTileID = tonumber(value) or 0
+
+            if globalTileID ~= 0 then
+                y, x = math.modf(tileIndex / map.width)
+                x = x * map.width
+
+                layer[y][x] = parseTileID(globalTileID, map.tileIDMapping)
+
+                -- collision check for SCENERY layer
+                if layerID == TileLayer.SCENERY then
+                    -- all scenery layer tiles are impassable
+                    map.walkable[y][x] = nil -- nil is used instead of false for memory optimization
+                end
+            end
+            tileIndex = tileIndex + 1
+        end
+    end
+end
+
+---@param mapRootNode XmlNode
+---@param map Map
+---@param tileSize integer
+---@return Player?
+local function parseObjects(mapRootNode, map, tileSize)
+    ---@type Player?
+    local player
+
+    local objectgroupNode = XML.findNodeChild(mapRootNode, "objectgroup")
+    assert(objectgroupNode and objectgroupNode.attributes.name == "objects", "objects layer missing")
+
+    for objectIndex, objectNode in XML.iterNodeChildren(objectgroupNode, "object") do
+        local objectID = tonumber(objectNode.attributes.id)
+        assert(objectID and objectID >= 0 and math.floor(objectID) == objectID,
+            "object #" .. tostring(objectIndex) .. " has missing or invalid id attribute")
+
+        local globalTileID = tonumber(objectNode.attributes.gid)
+        assert(globalTileID and globalTileID >= 0 and math.floor(globalTileID) == globalTileID,
+            "object " .. tostring(objectID) .. " has missing or invalid gid attribute")
+
+        local x = tonumber(objectNode.attributes.x)
+        local y = tonumber(objectNode.attributes.y)
+        assert(x and y and x >= 0 and y >= 0 and math.floor(x) == x and math.floor(y) == y,
+            "object " .. tostring(objectID) .. " has invalid x and/or y attributes")
+
+        -- calculate tile coords from pixels
+        x = math.floor(x / tileSize)
+        y = math.floor(y / tileSize)
+
+        -- parse the object tile
+        local objectTile = parseTileID(globalTileID, map.tileIDMapping)
+
+        ---@type string?
+        local objectUniqueName = objectNode.attributes.name
+        if objectUniqueName and string.len(objectUniqueName) == 0 then
+            -- treat empty string as nil
+            objectUniqueName = nil
+        end
+
+        ---@type string?
+        local objectTypeName = string.upper(objectNode.attributes.type or "")
+        local objectType
+        if objectTypeName and string.len(objectTypeName) == 0 then
+            -- treat empty string as nil
+            objectTypeName = nil
+        end
+
+        if objectTypeName then
+            objectType = ObjectType[objectTypeName]
+            assert(objectType, "object " .. tostring(objectID) .. " is not one of the valid object types")
+        else
+            objectType = objectTile.tileset.objectTypes[objectTile.id]
+            assert(objectType, "object " .. tostring(objectID) .. " does not have a type in its related tileset")
+        end
+
+        local objectProperties = {}
+        if objectUniqueName then
+            assert(map.namedObjects[objectUniqueName] == nil,
+                "object with uniqueName \"" .. objectUniqueName .. "\" already exists")
+        end
+
+        local defaultProperties = objectTile.tileset.defaultObjectProperties[objectTile.id]
+        if defaultProperties then
+            objectProperties = table.shallowCopy(defaultProperties)
+        end
+
+        local propertiesNode = XML.findNodeChild(objectNode, "properties")
+        if propertiesNode then
+            for propertyName, propertyValue in pairs(parseObjectProperties(propertiesNode)) do
+                objectProperties[propertyName] = propertyValue
+            end
+        end
+
+        ---@type Object
+        local object = {
+            id = objectID,
+            name = objectUniqueName,
+            type = objectType,
+            x = x,
+            y = y,
+            tile = objectTile,
+            properties = objectProperties,
+        }
+
+        if objectType == ObjectType.PLAYER then
+            assert(player == nil, "duplicate player object found")
+            player = object --[[@as Player]]
+        else
+            map.objects[y][x] = object
+            if objectUniqueName then
+                map.namedObjects[objectUniqueName] = object
+            end
+        end
+    end
+
+    return player
+end
+
+---@param mapName string
+---@return Map?, Player?
+function module.loadMapFromFile(mapName)
+    local filepath = "maps/" .. mapName .. ".tmx"
+
+    print("loading map \"" .. filepath .. "\"")
+
+    local mapRootNode = XML.loadFromFile(filepath)
+    assert(mapRootNode)
+
+    local tileWidth = tonumber(mapRootNode.attributes.tilewidth)
+    assert(tileWidth and tileWidth > 0 and math.floor(tileWidth) == tileWidth,
+        "map tilewidth must be a positive integer")
+    local tileHeight = tonumber(mapRootNode.attributes.tileheight)
+    assert(tileHeight and tileHeight > 0 and math.floor(tileHeight) == tileHeight,
+        "map tilewidth must be a positive integer")
+    assert(tileWidth == tileHeight, "map tilewidth and tileheight must be equal")
+
+    local map = createEmptyMap(mapRootNode)
+
+    print("loading map tilesets")
+    parseTilesets(mapRootNode, map)
+
+    print("loading map layer data")
+    parseLayers(mapRootNode, map)
+
+    print("loading map objects")
+    local player = parseObjects(mapRootNode, map, tileWidth)
+
+    return map, player
 end
 
 return module
