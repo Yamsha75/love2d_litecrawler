@@ -6,9 +6,9 @@ local TILE_SIZE = 16
 local TILE_HALFSIZE = TILE_SIZE * 0.5
 
 ---@type love.Font
-local BLOCK_FONT
+local MAIN_FONT
 
-local module = { TILE_SIZE = TILE_SIZE, TILE_HALFSIZE = TILE_HALFSIZE, SCALE = SCALE, BLOCK_FONT = BLOCK_FONT }
+local module = { TILE_SIZE = TILE_SIZE, TILE_HALFSIZE = TILE_HALFSIZE, SCALE = SCALE, MAIN_FONT = MAIN_FONT }
 
 -- number of tiles around center to draw
 local CAMERA_RANGE = 4
@@ -36,9 +36,7 @@ function module.load(tilesets, tileSize)
         Iffy.getImage(tileset.name):setFilter("nearest")
     end
 
-    -- BLOCK_FONT = love.graphics.newFont("assets/fonts/Kenney Blocks.ttf", 8)
-    BLOCK_FONT = love.graphics.newFont("assets/fonts/Metamorphous-Regular.ttf", 20, "normal", 0.75)
-    -- BLOCK_FONT:setFilter("nearest", "nearest")
+    MAIN_FONT = love.graphics.newFont("assets/fonts/Metamorphous-Regular.ttf", 20, "normal", 0.75)
 end
 
 ---@param map Map
@@ -55,12 +53,15 @@ function module.updateCamera(map, player)
 end
 
 ---@param drawable TileInfo
----@param x? integer
----@param y? integer
+---@param x? number
+---@param y? number
+---@param scale? number
 ---@param semitransparent? boolean
-function module.draw(drawable, x, y, semitransparent)
+function module.drawTile(drawable, x, y, scale, semitransparent)
     x = ((x or drawable.x) - CamX + CAMERA_RANGE) * TILE_SIZE + TILE_HALFSIZE
     y = ((y or drawable.y) - CamY + CAMERA_RANGE) * TILE_SIZE + TILE_HALFSIZE
+
+    if not scale then scale = 1 end
 
     if semitransparent then
         love.graphics.setColor(1, 1, 1, 0.5)
@@ -68,8 +69,10 @@ function module.draw(drawable, x, y, semitransparent)
         love.graphics.setColor(1, 1, 1, 1)
     end
 
-    Iffy.draw(drawable.tileset.name, drawable.id, x, y, drawable.r, drawable.sx or 1, drawable.sy or 1, TILE_HALFSIZE,
-        TILE_HALFSIZE)
+    Iffy.draw(drawable.tileset.name, drawable.id, x, y, drawable.r or 0, (drawable.sx or 1) * scale,
+        (drawable.sy or 1) * scale, TILE_HALFSIZE, TILE_HALFSIZE)
+
+    love.graphics.setColor(1, 1, 1, 1)
 end
 
 ---@param map Map
@@ -88,7 +91,7 @@ function module.drawMap(map, player)
             for x = CamMinX, CamMaxX do
                 tile = layer[y][x]
                 if tile then
-                    module.draw(tile, x, y)
+                    module.drawTile(tile, x, y)
                 end
             end
         end
@@ -103,13 +106,13 @@ function module.drawMap(map, player)
         for x = CamMinX, CamMaxX do
             object = objects[y][x] --[[@as Object]]
             if object then
-                module.draw(object.tile, object.x, object.y)
+                module.drawTile(object.tile, object.x, object.y)
             end
         end
     end
 
     -- draw player
-    module.draw(player.tile, player.x, player.y)
+    module.drawTile(player.tile, player.x, player.y)
 
     -- draw foreground layer
     layer = map.layers[TileLayer.FOREGROUND]
@@ -120,7 +123,7 @@ function module.drawMap(map, player)
             tile = layer[y][x]
 
             if tile then
-                module.draw(tile, x, y, x == player.x and y == player.y)
+                module.drawTile(tile, x, y, 1, x == player.x and y == player.y)
             end
         end
     end
@@ -135,13 +138,14 @@ function module.drawInventory(player, mapWidth)
     love.graphics.setColor(0, 0, 0, 1)
     love.graphics.scale(1 / SCALE, 1 / SCALE)
 
-    love.graphics.printf(text, BLOCK_FONT, inventoryTextX, 6 * SCALE, TILE_SIZE * 3 * SCALE, "left")
+    love.graphics.printf(text, MAIN_FONT, inventoryTextX, 6 * SCALE, TILE_SIZE * 3 * SCALE, "left")
 
     love.graphics.scale(SCALE, SCALE)
 
+    love.graphics.setColor(1, 1, 1, 1)
     for index, item in ipairs(player.inventory) do
         local offsetY, offsetX = math.modf((index - 1) / 3)
-        module.draw(item.tile, CamX + CAMERA_RANGE + offsetX * 3 + 1, CamY - CAMERA_RANGE + offsetY + 2.5, false)
+        module.drawTile(item.tile, CamX + CAMERA_RANGE + offsetX * 3 + 1, CamY - CAMERA_RANGE + offsetY + 2.5, false)
     end
 end
 

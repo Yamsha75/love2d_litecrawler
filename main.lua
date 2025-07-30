@@ -1,26 +1,41 @@
+-- libraries
 local Inspect = require("libraries.inspect")
 
 local Constants = require("constants")
-local MapLoader = require("maploader")
+local SimpleQuad = require("simplequad")
+
 local Tiles = require("tiles")
-local DialogBox = require("dialogbox")
+local UI = require("ui")
+
+local MapLoader = require("maploader")
 local Interactions = require("interactions")
 
+
+-- constants
+local MAIN_FONT_PATH = "assets/fonts/Metamorphous-Regular.ttf"
+
+-- globals
+---@type love.Font
+local MainFont
+
 ---@type GameState
-local gameState
+local GameState
 
 ---@type table<string, boolean>
-local keyPresses = {}
+local KeyPresses = {}
 
 -- tile size * tilesCount * scale
-local windowWidth = Tiles.TILE_SIZE * 12 * Tiles.SCALE
-local windowHeight = Tiles.TILE_SIZE * 9 * Tiles.SCALE
-
-local TEXT_ITEMS = {}
+local WindowWidth = Tiles.TILE_SIZE * 12 * Tiles.SCALE
+local WindowHeight = Tiles.TILE_SIZE * 9 * Tiles.SCALE
 
 function love.load()
-    love.window.setMode(windowWidth, windowHeight, {})
+    -- initialize window
+    love.window.setMode(WindowWidth, WindowHeight, {})
 
+    -- initialize font
+    MainFont = love.graphics.newFont(MAIN_FONT_PATH, 16)
+
+    -- load map and initialize GameState
     local map, player = MapLoader.loadMapFromFile("town")
     assert(map and player)
 
@@ -28,7 +43,7 @@ function love.load()
     player.inventory = {}
 
     ---@type GameState
-    gameState = {
+    GameState = {
         currentMap = map,
         loadedMaps = { default = map },
         player = player,
@@ -36,11 +51,19 @@ function love.load()
         progressTable = {},
     }
 
+    -- initialize other modules
     Tiles.load(map.tilesets, 16)
     Tiles.updateCamera(map, player)
 
-    DialogBox.load(0, Tiles.TILE_SIZE * (9 - 3), Tiles.TILE_SIZE * 9, Tiles.TILE_SIZE * 3, 8, 0.5)
-    DialogBox.newDialog("Game: choose your gender", { "boy", "girl" })
+    local tileSizeScaled = Tiles.TILE_SIZE * Tiles.SCALE
+
+    local sidePanelQuad = SimpleQuad.new(9 * tileSizeScaled, 0, 3 * tileSizeScaled, 9 * tileSizeScaled)
+    local dialogBoxQuad = SimpleQuad.new(0, 6 * tileSizeScaled, 9 * tileSizeScaled, 3 * tileSizeScaled)
+    local escapeWindowQuad = SimpleQuad.new(2 * tileSizeScaled, 3 * tileSizeScaled, 5 * tileSizeScaled, tileSizeScaled)
+
+    UI.load(sidePanelQuad, dialogBoxQuad, escapeWindowQuad, MainFont, 20, 24, 20, 4, Tiles.SCALE)
+
+    UI.startNewDialog("Game: choose your gender", { "boy", "girl" })
 end
 
 local moveDirections = {
@@ -51,163 +74,106 @@ local moveDirections = {
 }
 ---@param dt number
 function love.update(dt)
-    if not gameState then return end
+    if not GameState then return end
 
-    local now = love.timer.getTime()
-    for id, textItem in pairs(TEXT_ITEMS) do
-        if now > textItem.removeTick then
-            TEXT_ITEMS[id] = nil
+    if UI.isEscapeWindowVisible() then
+        if KeyPresses["return"] then
+            if UI.getEscapeWindowChoice() == true then
+                love.event.quit()
+            else
+                UI.setEscapeWindowVisible(false)
+            end
+        elseif KeyPresses["left"] then
+            UI.updateEscapeWindowChoice(true)
+        elseif KeyPresses["right"] then
+            UI.updateEscapeWindowChoice(false)
         end
-    end
-
-    if DialogBox.isDialogBoxShown() then
-        if keyPresses["return"] then
-            local choiceIndex, choiceText = DialogBox.getDialogBoxChoice()
+    elseif UI.isDialogBoxVisible() then
+        if KeyPresses["return"] then
+            local choiceText = UI.endDialog()
 
             if choiceText == "girl" then
-                gameState.player.tile.id = 3
+                GameState.player.tile.id = 3
             end
-
-            DialogBox.finishDialog()
-        elseif keyPresses.up then
-            DialogBox.incrementDialogBoxChoice(true)
-        elseif keyPresses.down then
-            DialogBox.incrementDialogBoxChoice()
-        end
-
-        for key, _ in pairs(keyPresses) do
-            keyPresses[key] = false
+        elseif KeyPresses["up"] then
+            UI.incrementDialogBoxChoice(true)
+        elseif KeyPresses["down"] then
+            UI.incrementDialogBoxChoice(false)
         end
     else
         for key, _ in pairs(moveDirections) do
-            if keyPresses[key] then
-                keyPresses[key] = false
+            if KeyPresses[key] then
+                KeyPresses[key] = false
 
                 local d = moveDirections[key]
-                local x = gameState.player.x + d.x
-                local y = gameState.player.y + d.y
+                local x = GameState.player.x + d.x
+                local y = GameState.player.y + d.y
 
                 -- rotate sprite left or right
                 if d.x > 0 then
-                    gameState.player.tile.sx = 1
+                    GameState.player.tile.sx = 1
                 elseif d.x < 0 then
-                    gameState.player.tile.sx = -1
+                    GameState.player.tile.sx = -1
                 end
 
                 -- check boundaries
-                if x < 0 or x >= gameState.currentMap.width then
+                if x < 0 or x >= GameState.currentMap.width then
                     return
-                elseif y < 0 or y >= gameState.currentMap.height then
+                elseif y < 0 or y >= GameState.currentMap.height then
                     return
                 end
+
+                local moveInto = true
 
                 -- check interactibles
                 ---@type Object?
-                local object = gameState.currentMap.objects[y][x]
+                local object = GameState.currentMap.objects[y][x]
                 if object then
-                    local moveIntoObject = Interactions.interactWithObject(gameState, object)
-                    if not moveIntoObject then return end
-
-                    -- local objectType = object.type
-
-                    -- if objectType == ObjectType.COIN then
-                    --     map.objects[y][x] = nil
-                    --     player.coins = player.coins + object.properties.value
-                    -- elseif objectType == ObjectType.ITEM then
-                    --     table.insert(player.inventory, object)
-                    --     map.objects[y][x] = nil
-                    -- elseif objectType == ObjectType.PORTAL then
-                    --     -- nothing for now
-                    -- else
-                    -- for other interactible types, skip movement
-                    -- if objectType == ObjectType.NPC then
-                    --     -- guard bribe check
-                    --     local bribed = false
-                    --     if object.uniqueName == "forest_trapdoor_guard" then
-                    --         for index, item in ipairs(player.inventory) do
-                    --             if item.id == 54 then
-                    --                 bribed = true
-                    --                 print("Thanks for the coin, you can go through now.")
-
-                    --                 table.remove(player.inventory, index)
-                    --                 map.objects[object.uniqueName] = nil
-                    --                 map.interactible[y][x] = nil
-                    --                 break
-                    --             end
-                    --         end
-                    --     end
-
-                    --     if not bribed then
-                    --         print(object.properties.text)
-                    --     end
-                    -- elseif objectType == ObjectType.BREAKABLE then
-                    --     local lootCode = object.properties.content
-                    --     if string.find(lootCode, "item_") == 1 then
-                    --         local itemID = tonumber(string.sub(lootCode, 6))
-                    --         assert(itemID)
-
-                    --         object.type = ObjectType.ITEM
-                    --         object.tileset = map.tilesets.items
-                    --         object.id = itemID
-                    --     end
-                    --[[ else]]
-                    -- if objectType == ObjectType.SIGN then
-                    --     isDialogBoxShowing = true
-                    --     DialogBox.setDialogBoxText(object.properties.text)
-
-                    -- local objectId = object.id
-                    -- local text = object.properties.text
-
-                    -- TEXT_ITEMS[objectId] =
-                    -- {
-                    --     x = object.x,
-                    --     y = object.y,
-                    --     text = love.graphics.newText(Tiles.BLOCK_FONT, text),
-                    --     removeTick = love.timer.getTime() + 2.5,
-                    -- }
-                    -- end
-
-                    -- skip movement
-                    -- return
-                    --     end
+                    -- object may be walked into after interaction or may block movement
+                    moveInto = Interactions.interactWithObject(GameState, object)
                 end
 
                 -- check walls
-                if gameState.currentMap.walkable[y][x] == true then
-                    gameState.player.x = x
-                    gameState.player.y = y
+                if moveInto and GameState.currentMap.walkable[y][x] == true then
+                    GameState.player.x = x
+                    GameState.player.y = y
+                    Tiles.updateCamera(GameState.currentMap, GameState.player)
                 end
+
+                -- stop processing other directions in this update cycle to avoid unwanted behaviour
+                break
             end
         end
-        Tiles.updateCamera(gameState.currentMap, gameState.player)
+    end
+
+    -- clean up key presses
+    for key, _ in pairs(KeyPresses) do
+        KeyPresses[key] = false
     end
 end
 
 function love.draw()
-    if not gameState then return end
+    if not GameState then return end
 
     love.graphics.scale(Tiles.SCALE, Tiles.SCALE)
 
-    Tiles.drawMap(gameState.currentMap, gameState.player)
+    Tiles.drawMap(GameState.currentMap, GameState.player)
 
-    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.scale(1 / Tiles.SCALE, 1 / Tiles.SCALE)
 
-    DialogBox.draw()
-
-    Tiles.drawInventory(gameState.player, gameState.currentMap.width)
-    Tiles.drawTexts(TEXT_ITEMS)
+    UI.draw()
 end
 
 function love.keypressed(key, scancode, is_repeat)
     if is_repeat then return end
 
-    if key == "escape" and love.system.getOS() ~= "web" then
-        love.event.quit()
-    elseif key == "return" then
-        keyPresses[key] = true
-    else
-        if key == "up" or key == "right" or key == "down" or key == "left" then
-            keyPresses[key] = true
+    if key == "escape" then
+        if not UI.isEscapeWindowVisible() and love.system.getOS() ~= "web" then
+            UI.openEscapeWindow()
         end
+    elseif key == "return" then
+        KeyPresses[key] = true
+    elseif key == "up" or key == "right" or key == "down" or key == "left" then
+        KeyPresses[key] = true
     end
 end

@@ -1,5 +1,3 @@
-local module = {}
-
 ---@class NinePatch
 ---@field x number
 ---@field y number
@@ -17,19 +15,27 @@ local module = {}
 ---@field botH number
 ---@field canvases love.Canvas[]
 ---@field quads love.Quad[]
+local NinePatchMT = {}
+NinePatchMT.__index = NinePatchMT
 
----Make sure image has filtering set to "nearest"/"nearest"
+local class = {}
+
+function class.isInstance(object)
+    return getmetatable(object) == NinePatchMT
+end
+
+----Make sure image has filtering set to "nearest"/"nearest"
 ---@param image love.Image -- image should have wrap "repeat" set up
 ---@param x number -- x position of the patch
 ---@param y number -- y position of the patch
 ---@param w number -- width of the patch
 ---@param h number -- height of the patch
 ---@param lftW number -- left side edge width
----@param topH number? -- top side edge height; use lftW if null
----@param rgtW number? -- right side edge width; use lftW if null
----@param botH number? -- bottom side edge height; use topH if null
+---@param topH number? -- top side edge height; uses lftW if null
+---@param rgtW number? -- right side edge width; uses lftW if null
+---@param botH number? -- bottom side edge height; uses topH if null
 ---@return NinePatch
-function module.create(image, x, y, w, h, lftW, topH, rgtW, botH)
+function class.new(image, x, y, w, h, lftW, topH, rgtW, botH)
     assert(type(x) == "number", "x must be a number")
     assert(type(y) == "number", "y must be a number")
     assert(type(w) == "number" and w > 0, "w must be a positive number")
@@ -122,7 +128,7 @@ function module.create(image, x, y, w, h, lftW, topH, rgtW, botH)
     quads[9] = love.graphics.newQuad(0, 0, rgtW, botH, canvases[9])
 
     ---@type NinePatch
-    local patch = {
+    local instance = {
         x = x,
         y = y,
         w = w,
@@ -141,54 +147,52 @@ function module.create(image, x, y, w, h, lftW, topH, rgtW, botH)
         quads = quads,
     }
 
-    return patch
+    return setmetatable(instance, NinePatchMT)
 end
 
 ---Update the position and size of the patch before drawing
----@param patch NinePatch
 ---@param x number
 ---@param y number
 ---@param w number
 ---@param h number
-function module.update(patch, x, y, w, h)
+function NinePatchMT:update(x, y, w, h)
     assert(type(x) == "number" and x >= 0, "x must be a non-negative number")
     assert(type(y) == "number" and y >= 0, "y must be a non-negative number")
     assert(type(w) == "number" and w > 0, "w must be a positive number")
     assert(type(h) == "number" and h > 0, "h must be a positive number")
 
     -- recalculate patch coords and sizes
-    patch.midW = w - patch.lftW - patch.rgtW
-    patch.midH = h - patch.topH - patch.botH
+    self.midW = w - self.lftW - self.rgtW
+    self.midH = h - self.topH - self.botH
 
-    patch.x1 = x + patch.lftW
-    patch.x2 = patch.x1 + patch.midW
+    self.x1 = x + self.lftW
+    self.x2 = self.x1 + self.midW
 
-    patch.y1 = y + patch.topH
-    patch.y2 = patch.y1 + patch.midH
+    self.y1 = y + self.topH
+    self.y2 = self.y1 + self.midH
 
     -- update quads
-    local canvases = patch.canvases
-    local quads = patch.quads
-    quads[2]:setViewport(0, 0, patch.midW, patch.topH, canvases[2]:getDimensions())
-    quads[4]:setViewport(0, 0, patch.lftW, patch.midH, canvases[4]:getDimensions())
-    quads[5]:setViewport(0, 0, patch.midW, patch.midH, canvases[5]:getDimensions())
-    quads[6]:setViewport(0, 0, patch.rgtW, patch.midH, canvases[6]:getDimensions())
-    quads[8]:setViewport(0, 0, patch.midW, patch.botH, canvases[8]:getDimensions())
+    local canvases = self.canvases
+    local quads = self.quads
+    quads[2]:setViewport(0, 0, self.midW, self.topH, canvases[2]:getDimensions())
+    quads[4]:setViewport(0, 0, self.lftW, self.midH, canvases[4]:getDimensions())
+    quads[5]:setViewport(0, 0, self.midW, self.midH, canvases[5]:getDimensions())
+    quads[6]:setViewport(0, 0, self.rgtW, self.midH, canvases[6]:getDimensions())
+    quads[8]:setViewport(0, 0, self.midW, self.botH, canvases[8]:getDimensions())
 end
 
 ---Draw the patch. Preferably done once to a `love.Canvas` object and drawn from canvas to screen with normal
 ---`love.graphics.draw`
----@param patch NinePatch
-function module.draw(patch)
-    love.graphics.draw(patch.canvases[1], patch.quads[1], patch.x, patch.y)
-    love.graphics.draw(patch.canvases[2], patch.quads[2], patch.x1, patch.y)
-    love.graphics.draw(patch.canvases[3], patch.quads[3], patch.x2, patch.y)
-    love.graphics.draw(patch.canvases[4], patch.quads[4], patch.x, patch.y1)
-    love.graphics.draw(patch.canvases[5], patch.quads[5], patch.x1, patch.y1)
-    love.graphics.draw(patch.canvases[6], patch.quads[6], patch.x2, patch.y1)
-    love.graphics.draw(patch.canvases[7], patch.quads[7], patch.x, patch.y2)
-    love.graphics.draw(patch.canvases[8], patch.quads[8], patch.x1, patch.y2)
-    love.graphics.draw(patch.canvases[9], patch.quads[9], patch.x2, patch.y2)
+function NinePatchMT:draw()
+    love.graphics.draw(self.canvases[1], self.quads[1], self.x, self.y)
+    love.graphics.draw(self.canvases[2], self.quads[2], self.x1, self.y)
+    love.graphics.draw(self.canvases[3], self.quads[3], self.x2, self.y)
+    love.graphics.draw(self.canvases[4], self.quads[4], self.x, self.y1)
+    love.graphics.draw(self.canvases[5], self.quads[5], self.x1, self.y1)
+    love.graphics.draw(self.canvases[6], self.quads[6], self.x2, self.y1)
+    love.graphics.draw(self.canvases[7], self.quads[7], self.x, self.y2)
+    love.graphics.draw(self.canvases[8], self.quads[8], self.x1, self.y2)
+    love.graphics.draw(self.canvases[9], self.quads[9], self.x2, self.y2)
 end
 
-return module
+return class

@@ -5,111 +5,67 @@
  <tile id="0" type="npc">
   <properties>
    <property name="helloText" value="Hello, adventurer."/>
-   <property name="missionRequirement" value=""/>
-   <property name="missionReward" value=""/>
-   <property name="missionSuccessText" value=""/>
-   <property name="missionText" value=""/>
-   <property name="normalText" value="..."/>
+   <property name="normalText" value="Fine weather today."/>
   </properties>
  </tile>
  <tile id="1" type="npc">
   <properties>
    <property name="helloText" value="Hello, adventurer."/>
-   <property name="missionRequirement" value=""/>
-   <property name="missionReward" value=""/>
-   <property name="missionSuccessText" value=""/>
-   <property name="missionText" value=""/>
-   <property name="normalText" value="..."/>
+   <property name="normalText" value="Fine weather today."/>
   </properties>
  </tile>
  <tile id="2" type="npc">
   <properties>
    <property name="helloText" value="Hello, adventurer."/>
-   <property name="missionRequirement" value=""/>
-   <property name="missionReward" value=""/>
-   <property name="missionSuccessText" value=""/>
-   <property name="missionText" value=""/>
-   <property name="normalText" value="..."/>
+   <property name="normalText" value="Fine weather today."/>
   </properties>
  </tile>
  <tile id="3" type="npc">
   <properties>
    <property name="helloText" value="Hello, adventurer."/>
-   <property name="missionRequirement" value=""/>
-   <property name="missionReward" value=""/>
-   <property name="missionSuccessText" value=""/>
-   <property name="missionText" value=""/>
-   <property name="normalText" value="..."/>
+   <property name="normalText" value="Fine weather today."/>
   </properties>
  </tile>
  <tile id="4" type="npc">
   <properties>
    <property name="helloText" value="Hello, adventurer."/>
-   <property name="missionRequirement" value=""/>
-   <property name="missionReward" value=""/>
-   <property name="missionSuccessText" value=""/>
-   <property name="missionText" value=""/>
-   <property name="normalText" value="..."/>
+   <property name="normalText" value="Fine weather today."/>
   </properties>
  </tile>
  <tile id="5" type="npc">
   <properties>
    <property name="helloText" value="Hello, adventurer."/>
-   <property name="missionRequirement" value=""/>
-   <property name="missionReward" value=""/>
-   <property name="missionSuccessText" value=""/>
-   <property name="missionText" value=""/>
-   <property name="normalText" value="..."/>
+   <property name="normalText" value="Fine weather today."/>
   </properties>
  </tile>
  <tile id="12" type="npc">
   <properties>
    <property name="helloText" value="Hello, adventurer."/>
-   <property name="missionRequirement" value=""/>
-   <property name="missionReward" value=""/>
-   <property name="missionSuccessText" value=""/>
-   <property name="missionText" value=""/>
-   <property name="normalText" value="..."/>
+   <property name="normalText" value="Fine weather today."/>
   </properties>
  </tile>
  <tile id="13" type="npc">
   <properties>
    <property name="helloText" value="Hello, adventurer."/>
-   <property name="missionRequirement" value=""/>
-   <property name="missionReward" value=""/>
-   <property name="missionSuccessText" value=""/>
-   <property name="missionText" value=""/>
-   <property name="normalText" value="..."/>
+   <property name="normalText" value="Fine weather today."/>
   </properties>
  </tile>
  <tile id="14" type="npc">
   <properties>
    <property name="helloText" value="Hello, adventurer."/>
-   <property name="missionRequirement" value=""/>
-   <property name="missionReward" value=""/>
-   <property name="missionSuccessText" value=""/>
-   <property name="missionText" value=""/>
-   <property name="normalText" value="..."/>
+   <property name="normalText" value="Fine weather today."/>
   </properties>
  </tile>
  <tile id="15" type="npc">
   <properties>
    <property name="helloText" value="Hello, adventurer."/>
-   <property name="missionRequirement" value=""/>
-   <property name="missionReward" value=""/>
-   <property name="missionSuccessText" value=""/>
-   <property name="missionText" value=""/>
-   <property name="normalText" value="..."/>
+   <property name="normalText" value="Fine weather today."/>
   </properties>
  </tile>
  <tile id="16" type="npc">
   <properties>
    <property name="helloText" value="Hello, adventurer."/>
-   <property name="missionRequirement" value=""/>
-   <property name="missionReward" value=""/>
-   <property name="missionSuccessText" value=""/>
-   <property name="missionText" value=""/>
-   <property name="normalText" value="..."/>
+   <property name="normalText" value="Fine weather today."/>
   </properties>
  </tile>
  <tile id="24" type="mob"/>
